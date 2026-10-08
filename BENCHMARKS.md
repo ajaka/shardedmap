@@ -4,29 +4,30 @@ All benchmarks run with [Criterion](https://github.com/bheisler/criterion.rs). E
 
 ## System Specifications
 
-| Component | Details |
-|-----------|---------|
-| **CPU** | Intel Core i5-6300U @ 2.40GHz (2 cores, 4 threads, 3 MiB L3) |
-| **RAM** | 7.6 GiB DDR4 |
-| **OS** | Linux 7.0.0-30-generic (Ubuntu) |
-| **Rust** | 1.82+ (stable) |
-| **Build** | `cargo bench --release` |
+| Component | Details                                                      |
+| --------- | ------------------------------------------------------------ |
+| **CPU**   | Intel Core i5-6300U @ 2.40GHz (2 cores, 4 threads, 3 MiB L3) |
+| **RAM**   | 7.6 GiB DDR4                                                 |
+| **OS**    | Linux 7.0.0-30-generic (Ubuntu)                              |
+| **Rust**  | 1.82+ (stable)                                               |
+| **Build** | `cargo bench --release`                                      |
 
-> **Note**: Results are specific to this hardware. On different CPUs (more cores, different microarchitecture, different cache hierarchy), absolute numbers and scaling behavior will vary. The *relative* ordering (DashMap > ShardedMap > Mutex<HashMap>) is expected to hold, but the gap magnitudes may change.
+> **Note**: Results are specific to this hardware. On different CPUs (more cores, different microarchitecture, different cache hierarchy), absolute numbers and scaling behavior will vary. The _relative_ ordering (DashMap > ShardedMap > Mutex<HashMap>) is expected to hold, but the gap magnitudes may change.
 
 ## ShardedMap vs. DashMap vs. Mutex\<HashMap\>
 
 ShardedMap (16 shards) benchmarked against [DashMap](https://github.com/xacrimon/dashmap) and a naive `Mutex<HashMap>` baseline, across 1–16 threads. Two ShardedMap backends tested: **HashMap** and **BTreeMap**.
 
 | Threads | ShardedMap (HashMap) | ShardedMap (BTreeMap) | DashMap | Mutex\<HashMap\> |
-|--------:|---------------------:|----------------------:|--------:|-----------------:|
-| 1       | 0.91 ms              | 0.93 ms               | 0.69 ms | 0.76 ms          |
-| 2       | 1.63 ms              | 1.57 ms               | 1.11 ms | 2.22 ms          |
-| 4       | 2.95 ms              | 3.01 ms               | 1.85 ms | 7.11 ms          |
-| 8       | 5.13 ms              | 5.33 ms               | 3.10 ms | 14.57 ms         |
-| 16      | 10.10 ms             | 10.65 ms              | 5.78 ms | 31.35 ms         |
+| ------: | -------------------: | --------------------: | ------: | ---------------: |
+|       1 |              0.91 ms |               0.93 ms | 0.69 ms |          0.76 ms |
+|       2 |              1.63 ms |               1.57 ms | 1.11 ms |          2.22 ms |
+|       4 |              2.95 ms |               3.01 ms | 1.85 ms |          7.11 ms |
+|       8 |              5.13 ms |               5.33 ms | 3.10 ms |         14.57 ms |
+|      16 |             10.10 ms |              10.65 ms | 5.78 ms |         31.35 ms |
 
 **Takeaways:**
+
 - `Mutex<HashMap>` scales poorly — time roughly doubles every doubling of threads, the expected signature of a single global lock fully serializing all access.
 - Both ShardedMap and DashMap scale sub-linearly: per-thread cost drops as thread count rises, since work spreads across independent locks instead of queuing on one.
 - **ShardedMap (HashMap) delivers ~3.1x higher throughput than `Mutex<HashMap>` at 16 threads** (10.10ms vs 31.35ms).
@@ -36,11 +37,10 @@ ShardedMap (16 shards) benchmarked against [DashMap](https://github.com/xacrimon
 
 ### Why the Gap vs DashMap?
 
-**It is not trait-dispatch overhead.** ShardedMap uses *static dispatch* (monomorphization) — the `ShardableMap` and `ShardLock` traits are generic parameters, not `dyn Trait`. The compiler generates fully specialized code for each backend; there is zero vtable indirection.
+The reasons DashMap is faster:
 
-The real reasons DashMap is faster:
 1. **Single hash per operation** — DashMap hashes once; ShardedMap hashes once for shard index, then the inner `HashMap` hashes again.
-2. **Finer-grained locking** — DashMap uses a custom sharded array with per-shard `RwLock` *and* per-bucket locking in some configurations; ShardedMap uses one `RwLock` per entire shard.
+2. **Finer-grained locking** — DashMap uses a custom sharded array with per-shard `RwLock` _and_ per-bucket locking in some configurations; ShardedMap uses one `RwLock` per entire shard.
 3. **Memory layout** — DashMap's `Vec<Bucket>` stores entries inline; `std::collections::HashMap` has an extra pointer indirection per entry.
 4. **Hash function** — DashMap defaults to `ahash` (fast, randomized); std `HashMap` uses SipHash (DoS-resistant, slower).
 5. **Optimization maturity** — DashMap has years of micro-optimizations (prefetching, lock elision, etc.).
@@ -51,14 +51,15 @@ If you need DashMap-level performance, use DashMap. ShardedMap's value is **plug
 
 Isolating shard count as an independent variable (1/4/16/64 shards) across thread counts, holding everything else fixed (HashMap backend, 1000 ops/thread):
 
-| Threads | 1 shard | 4 shards | 16 shards | 64 shards |
-|--------:|--------:|---------:|----------:|----------:|
-| 1       | 0.77 ms | 0.93 ms  | 0.90 ms   | 0.95 ms   |
-| 2       | 2.95 ms | 1.99 ms  | 1.63 ms   | 1.40 ms   |
-| 4       | 7.66 ms | 4.23 ms  | 2.97 ms   | 2.37 ms   |
-| 8       | 16.12 ms| 8.19 ms  | 5.68 ms   | 4.51 ms   |
+| Threads |  1 shard | 4 shards | 16 shards | 64 shards |
+| ------: | -------: | -------: | --------: | --------: |
+|       1 |  0.77 ms |  0.93 ms |   0.90 ms |   0.95 ms |
+|       2 |  2.95 ms |  1.99 ms |   1.63 ms |   1.40 ms |
+|       4 |  7.66 ms |  4.23 ms |   2.97 ms |   2.37 ms |
+|       8 | 16.12 ms |  8.19 ms |   5.68 ms |   4.51 ms |
 
 **Takeaways:**
+
 - At **1 thread (no contention possible)**, shard count makes little difference — all configs within ~20%. The slight edge for 1 shard (0.77ms vs 0.95ms) is the expected overhead of hashing to a shard index and maintaining more lock instances.
 - At **2+ threads**, the picture flips dramatically: the 1-shard config degrades toward a single global lock (2.95ms at 2 threads, 16.12ms at 8), while 64 shards absorbs the load (1.40ms at 2 threads, 4.51ms at 8).
 - This confirms the core design tradeoff: shard count is a real dial between single-threaded overhead and multi-threaded scalability.
@@ -67,19 +68,19 @@ Isolating shard count as an independent variable (1/4/16/64 shards) across threa
 ## Single-Threaded Insert Overhead (HashMap Backend)
 
 | Shard Count | Mean Insert Time |
-|------------:|-----------------:|
-| 1           | 587 ns           |
-| 8           | 583 ns           |
-| 64          | 590 ns           |
+| ----------: | ---------------: |
+|           1 |           587 ns |
+|           8 |           583 ns |
+|          64 |           590 ns |
 
 No meaningful difference (within noise) — sharding overhead is negligible for single-threaded workloads at this key/value size.
 
 ## HashMap vs. BTreeMap Backend (Single-Key Get)
 
-| Backend   | Mean Get Time |
-|-----------|--------------:|
-| HashMap   | 183 ns        |
-| BTreeMap  | 120 ns        |
+| Backend  | Mean Get Time |
+| -------- | ------------: |
+| HashMap  |        183 ns |
+| BTreeMap |        120 ns |
 
 BTreeMap's `get` outperforms HashMap's here — but this is an artifact of the benchmark using a single stored key (n=1). Rust's default `HashMap` hasher (SipHash) pays a fixed, DoS-resistant hashing cost on every lookup regardless of map size, while BTreeMap on a single-entry tree does effectively zero comparisons. At larger n, HashMap's O(1) average case would be expected to win. Included for completeness, not as a backend recommendation.
 
