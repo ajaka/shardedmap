@@ -147,13 +147,14 @@ ShardedMap<K, V, M, L>
 
 ## Benchmarks
 
-Benchmarked against [DashMap](https://github.com/xacrimon/dashmap) and a naive `Mutex<HashMap>` baseline with Criterion across 1–16 threads:
+Benchmarked against [DashMap](https://github.com/xacrimon/dashmap) and a naive `Mutex<HashMap>` baseline with Criterion across 1–16 threads (16 shards):
 
-- **~2.3x higher throughput** than the `Mutex<HashMap>` baseline at 16 threads
-- **~39% behind DashMap** at 16 threads, attributable to generic trait-dispatch overhead
-- Shard count directly confirmed as a tuning tradeoff: over-sharding costs ~22% overhead at low contention, but nearly eliminates lock-serialization penalties under load
+- **~3.1x higher throughput** than `Mutex<HashMap>` at 16 threads (10.10ms vs 31.35ms)
+- **~1.7x slower than DashMap** at 16 threads (10.10ms vs 5.78ms)
+- **HashMap vs BTreeMap backends perform nearly identically at scale** (10.10ms vs 10.65ms at 16 threads) — lock contention dominates
+- Shard count confirmed as a tuning tradeoff: 1 shard costs 3.6x more than 64 shards at 8 threads (16.12ms vs 4.51ms)
 
-Full results, methodology, and how to read the raw reports: [BENCHMARKS.md](./BENCHMARKS.md)
+Full results, methodology, system specs, and how to read the raw reports: [BENCHMARKS.md](./BENCHMARKS.md)
 
 ## License
 
