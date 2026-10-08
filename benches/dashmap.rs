@@ -11,13 +11,39 @@ fn bench_concurrent_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("concurrent_map_comparison");
 
     for threads in [1, 2, 4, 8, 16] {
-        // ShardedMap
+        // ShardedMap with HashMap backend
         group.bench_with_input(
-            BenchmarkId::new("shardedmap", threads),
+            BenchmarkId::new("shardedmap_hashmap", threads),
             &threads,
             |b, &threads| {
                 b.iter(|| {
                     let map = Arc::new(Builder::new_default_lock_with_hashmap::<u64, u64>(16));
+                    let handles: Vec<_> = (0..threads)
+                        .map(|t| {
+                            let map = Arc::clone(&map);
+                            thread::spawn(move || {
+                                for i in 0..OPS_PER_THREAD {
+                                    let key = (t as u64) * OPS_PER_THREAD + i;
+                                    map.insert(key, key);
+                                    black_box(map.get(&key));
+                                }
+                            })
+                        })
+                        .collect();
+                    for h in handles {
+                        h.join().unwrap();
+                    }
+                });
+            },
+        );
+
+        // ShardedMap with BTreeMap backend
+        group.bench_with_input(
+            BenchmarkId::new("shardedmap_btreemap", threads),
+            &threads,
+            |b, &threads| {
+                b.iter(|| {
+                    let map = Arc::new(Builder::new_default_lock_with_btreemap::<u64, u64>(16));
                     let handles: Vec<_> = (0..threads)
                         .map(|t| {
                             let map = Arc::clone(&map);
